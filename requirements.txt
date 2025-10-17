@@ -1,0 +1,9 @@
+python-telegram-bot==20.6.1
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+pymupdf==1.23.1
+python-dotenv==1.0.0
+langchain==0.0.447
+ollama==0.2.1
+tqdm
+sqlite-utils
