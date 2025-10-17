@@ -13,7 +13,7 @@ echo "=== Pull Ollama model (mistral) ==="
 ollama pull mistral
 
 echo "=== Clone repo and setup virtualenv ==="
-git clone https://github.com/YOUR_USERNAME/al_ict_bot.git
+git clone https://github.com/VenujASB/al_ict_bot.git
 cd al_ict_bot
 python3 -m venv .venv
 source .venv/bin/activate
