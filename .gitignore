@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.cache/
+cache.db
+vector_store/faiss.index
+vector_store/chunks.json
+.env
