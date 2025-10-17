@@ -1,42 +1,34 @@
 # build_knowledge.py
-import os, json, re
+import os
+import json
 from pathlib import Path
+from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
-import faiss, fitz
-from tqdm import tqdm
+import faiss
+
+VECTOR_DIR = Path("vector_store")
+VECTOR_DIR.mkdir(exist_ok=True)
 
 PDF_PATH = Path("al_ict.pdf")
-OUT_DIR = Path("vector_store")
-OUT_DIR.mkdir(exist_ok=True)
-EMB_MODEL = "all-mpnet-base-v2"
-CHUNK_SIZE, OVERLAP = 900, 128
+CHUNK_SIZE = 500
 
-def extract_text(path):
-    doc = fitz.open(path)
-    return "\n".join([p.get_text("text") for p in doc])
+reader = PdfReader(str(PDF_PATH))
+text = ""
+for page in reader.pages:
+    text += page.extract_text() + "\n"
 
-def chunk(text):
-    chunks, start = [], 0
-    text = re.sub(r'\n{2,}', '\n', text)
-    while start < len(text):
-        end = start + CHUNK_SIZE
-        if end > len(text): end = len(text)
-        cut = text.rfind(". ", start, end)
-        if cut == -1: cut = end
-        chunks.append(text[start:cut].strip())
-        start = cut - OVERLAP
-    return [c for c in chunks if len(c) > 40]
+chunks = [text[i:i+CHUNK_SIZE] for i in range(0, len(text), CHUNK_SIZE)]
+print(f"Total chunks: {len(chunks)}")
 
-def build_index(chunks):
-    model = SentenceTransformer(EMB_MODEL)
-    emb = model.encode(chunks, show_progress_bar=True, convert_to_numpy=True)
-    idx = faiss.IndexFlatL2(emb.shape[1])
-    idx.add(emb)
-    faiss.write_index(idx, str(OUT_DIR/"faiss.index"))
-    json.dump(chunks, open(OUT_DIR/"chunks.json","w",encoding="utf-8"), ensure_ascii=False, indent=2)
-    print("✅ Index built with", len(chunks), "chunks.")
+sbert = SentenceTransformer("all-mpnet-base-v2")
+embeddings = sbert.encode(chunks, convert_to_numpy=True)
 
-if __name__ == "__main__":
-    txt = extract_text(PDF_PATH)
-    ch = chunk(txt)
-    build_index(ch)
+dim = embeddings.shape[1]
+index = faiss.IndexFlatL2(dim)
+index.add(embeddings)
+faiss.write_index(index, str(VECTOR_DIR / "faiss.index"))
+
+with open(VECTOR_DIR / "chunks.json", "w", encoding="utf-8") as f:
+    json.dump(chunks, f, ensure_ascii=False, indent=2)
+
+print("FAISS index and chunks saved to vector_store/")
