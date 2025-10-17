@@ -1,10 +1,10 @@
 #!/bin/bash
-# VPS setup for ICT Guru bot
+# VPS setup for ICT Guru bot (assumes project files already exist)
 set -e
 
 echo "=== Installing system packages ==="
 apt update
-apt install -y python3 python3-venv python3-pip git curl build-essential
+apt install -y python3 python3-venv python3-pip curl build-essential
 
 echo "=== Installing Ollama ==="
 bash -c "$(curl -fsSL https://ollama.com/install.sh)"
@@ -12,9 +12,7 @@ bash -c "$(curl -fsSL https://ollama.com/install.sh)"
 echo "=== Pull Ollama model (mistral) ==="
 ollama pull mistral
 
-echo "=== Clone repo and setup virtualenv ==="
-git clone https://github.com/VenujASB/al_ict_bot.git
-cd al_ict_bot
+echo "=== Setup virtualenv ==="
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
