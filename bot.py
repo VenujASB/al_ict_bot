@@ -10,13 +10,13 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
-from ollama import Ollama
+from ollama import Client
 import re
 
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")  # choose the model you pulled with `ollama pull mistral`
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 VECTOR_DIR = Path("vector_store")
 DB_PATH = Path("cache.db")
 
@@ -25,6 +25,7 @@ print("Loading FAISS index and chunks...")
 index = faiss.read_index(str(VECTOR_DIR / "faiss.index"))
 with open(VECTOR_DIR / "chunks.json", "r", encoding="utf-8") as f:
     chunks = json.load(f)
+
 # embedding model for similarity
 sbert = SentenceTransformer("all-mpnet-base-v2")
 
@@ -42,22 +43,18 @@ CREATE TABLE IF NOT EXISTS cache (
 conn.commit()
 
 # Ollama client
-ollama = Ollama()  # uses local Ollama daemon
+ollama = Client()  # connects to local Ollama daemon
 
 # --- Sinhala-aware tokenizer ---
-# this tokeniser keeps Sinhala blocks (U+0D80–U+0DFF) and latin words, numbers, and punctuation separate
 SINDHI_RE = re.compile(r'[\u0D80-\u0DFF]+|[A-Za-z0-9]+|[^\s\w]', flags=re.UNICODE)
 
 def sinhala_tokenize(text):
-    # normalize whitespace
     text = re.sub(r'\s+', ' ', text).strip()
-    tokens = SINDHI_RE.findall(text)
-    return tokens
+    return SINDHI_RE.findall(text)
 
 def normalize_question(text):
     text = text.lower().strip()
     text = re.sub(r'\s+', ' ', text)
-    # remove punctuation except Sinhala/letters/numbers
     text = re.sub(r'[^\w\u0D80-\u0DFF\s]', '', text)
     return text
 
@@ -73,7 +70,6 @@ def retrieve_top_k(question, k=4, embed_model=sbert):
 
 # --- RAG answer generation ---
 def generate_answer(question, top_chunks, short=True):
-    # Build prompt: include short instruction to answer concisely in Sinhala+English if possible
     context_text = "\n\n---\n\n".join(top_chunks)
     answer_style = "Give a short (1-2 lines) student-friendly answer in Sinhala and/or English. Use Sinhala when short phrase exists, otherwise use English. Keep it simple."
     if not short:
@@ -92,16 +88,13 @@ INSTRUCTIONS:
 
 Answer:
 """
-    # call ollama
-    resp = ollama.generate(model=OLLAMA_MODEL, prompt=prompt, max_tokens=300)
-    # Ollama client returns dict with 'choices'
+    resp = ollama.chat(model=OLLAMA_MODEL, messages=[{"role": "user", "content": prompt}])
     text = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
     if not text:
-        # fallback short answer: join top chunks
         text = "\n".join([c[:400] for c in top_chunks])
     return text.strip()
 
-# --- Check cache ---
+# --- Cache functions ---
 def check_cache(qnorm):
     cur.execute("SELECT answer FROM cache WHERE qnorm = ?", (qnorm,))
     r = cur.fetchone()
@@ -123,27 +116,23 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_q = update.message.text
     qnorm = normalize_question(user_q)
-    # cache check
+
     cached = check_cache(qnorm)
     if cached:
         await update.message.reply_text(f"🔁 Cached answer:\n{cached}")
         return
 
-    # quick retrieval
     top = retrieve_top_k(user_q, k=4)
     if not top:
         await update.message.reply_text("Sorry, I couldn't find relevant syllabus text. Try rephrasing.")
         return
 
-    # produce short answer
     try:
         answer = generate_answer(user_q, top, short=True)
     except Exception as e:
-        # fallback: return first chunk truncated
         answer = top[0][:800]
         print("LLM error:", e)
 
-    # cache it
     try:
         write_cache(qnorm, user_q, answer)
     except Exception as e:
